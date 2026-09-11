@@ -103,7 +103,6 @@ await page.addStyleTag({
     }
     #scroll-capture-cursor.ripple::after { animation: cursor-ripple 0.6s ease-out; }
     @keyframes cursor-ripple { 0% { transform: translate(-50%, -50%) scale(0); opacity: 1; } 100% { transform: translate(-50%, -50%) scale(1.6); opacity: 0; } }
-    #scroll-zoom-wrap { transition: transform 0.55s cubic-bezier(0.2,0,0.2,1); transform-origin: 50% 50%; will-change: transform; }
     #scroll-zoom-backdrop {
       position: fixed; inset: 0; background: rgba(0,0,0,0.0); pointer-events: none; z-index: 999998;
       transition: background 0.4s ease; opacity: 0;
@@ -119,11 +118,6 @@ await page.addStyleTag({
 });
 
 await page.evaluate(() => {
-  // Wrap body for zoom (keep cursor fixed outside wrap)
-  const wrap = document.createElement("div");
-  wrap.id = "scroll-zoom-wrap";
-  while (document.body.firstChild) wrap.appendChild(document.body.firstChild);
-  document.body.appendChild(wrap);
   const backdrop = document.createElement("div");
   backdrop.id = "scroll-zoom-backdrop";
   document.body.appendChild(backdrop);
@@ -163,27 +157,40 @@ await page.evaluate(() => {
   };
   (window as any).__cursorClickOut = () => cursor.classList.remove("clicking");
 
-  (window as any).__zoomIn = (el: Element) => {
-    const r = el.getBoundingClientRect();
-    const cx = r.left + r.width / 2;
-    const cy = r.top + r.height / 2;
-    // Choose scale based on element size - smaller elements get more zoom
-    const scale = r.width < 300 ? 1.65 : r.width < 500 ? 1.4 : 1.25;
-    const originX = (cx / window.innerWidth) * 100;
-    const originY = (cy / window.innerHeight) * 100;
-    wrap.style.transformOrigin = `${originX}% ${originY}%`;
-    wrap.style.transform = `scale(${scale})`;
+  let _zoomedEl: HTMLElement | null = null;
+  let _zoomedOrigTransform = "";
+  (window as any).__zoomIn = (rect: any) => {
+    const left = rect.left ?? rect.x ?? 0;
+    const top = rect.top ?? rect.y ?? 0;
+    const width = rect.width ?? 0;
+    const height = rect.height ?? 0;
     backdrop.classList.add("active");
-    highlight.style.left = r.left - 6 + "px";
-    highlight.style.top = r.top - 6 + "px";
-    highlight.style.width = r.width + 12 + "px";
-    highlight.style.height = r.height + 12 + "px";
+    highlight.style.left = left - 6 + "px";
+    highlight.style.top = top - 6 + "px";
+    highlight.style.width = width + 12 + "px";
+    highlight.style.height = height + 12 + "px";
     highlight.classList.add("active");
+    // Also scale the element itself for true zoom focus
+    try {
+      const el = document.elementFromPoint(left + width/2, top + height/2) as HTMLElement;
+      if (el) {
+        _zoomedEl = el.closest('button, a, input, [role="button"]') as HTMLElement || el;
+        _zoomedOrigTransform = _zoomedEl.style.transform || "";
+        _zoomedEl.style.transition = "transform 0.45s cubic-bezier(0.2,0,0.2,1), box-shadow 0.45s";
+        _zoomedEl.style.transform = "scale(1.08)";
+        _zoomedEl.style.boxShadow = "0 8px 28px rgba(0,0,0,0.22)";
+        _zoomedEl.style.zIndex = "999997";
+      }
+    } catch {}
   };
   (window as any).__zoomOut = () => {
-    wrap.style.transform = "scale(1)";
     backdrop.classList.remove("active");
     highlight.classList.remove("active");
+    if (_zoomedEl) {
+      _zoomedEl.style.transform = _zoomedOrigTransform;
+      _zoomedEl.style.boxShadow = "";
+      _zoomedEl = null;
+    }
   };
   // Keep cursor tracking real mouse for fallback
   document.addEventListener("mousemove", (e) => {
@@ -197,10 +204,11 @@ async function getCenter(selector: string) {
   if (box) return { x: box.x + box.width / 2, y: box.y + box.height / 2, box };
   // Fallback via evaluate
   const rect = await page.evaluate((sel) => {
-    const el = document.querySelector(sel);
+    try { const el = document.querySelector(sel);
     if (!el) return null;
     const r = el.getBoundingClientRect();
     return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height, left: r.left, top: r.top };
+    } catch(e) { return null; }
   }, selector);
   if (rect) return { x: rect.x, y: rect.y, box: { x: rect.left, y: rect.top, width: rect.w, height: rect.h } as any };
   return null;
@@ -211,11 +219,10 @@ async function smoothClick(selector: string) {
   if (center) {
     await page.evaluate(({ x, y }) => (window as any).__moveCursorTo(x, y, 700), { x: center.x, y: center.y });
     await page.waitForTimeout(250);
-    // Zoom in before click
-    await page.evaluate((sel) => {
-      const el = document.querySelector(sel);
-      if (el) (window as any).__zoomIn(el);
-    }, selector);
+    // Zoom in before click - use rect from locator
+    await page.evaluate((rect) => {
+      if (rect) (window as any).__zoomIn(rect);
+    }, center.box);
     await page.waitForTimeout(550);
     await page.evaluate(() => (window as any).__cursorClickIn());
     await page.click(selector, { timeout: 5000 }).catch((e) => console.log(`  click failed: ${e.message}`));
@@ -236,10 +243,9 @@ async function smoothType(selector: string, text: string) {
   if (center) {
     await page.evaluate(({ x, y }) => (window as any).__moveCursorTo(x, y, 600), { x: center.x, y: center.y });
     await page.waitForTimeout(200);
-    await page.evaluate((sel) => {
-      const el = document.querySelector(sel) as HTMLElement;
-      if (el) (window as any).__zoomIn(el);
-    }, selector);
+    await page.evaluate((rect) => {
+      if (rect) (window as any).__zoomIn(rect);
+    }, center.box);
     await page.waitForTimeout(450);
   }
   // Focus, clear, then type char by char so it's visible (not pre-filled)
@@ -287,10 +293,8 @@ if (scriptPath) {
       const c = await getCenter(step.hover);
       if (c) await page.evaluate(({ x, y }) => (window as any).__moveCursorTo(x, y, 600), { x: c.x, y: c.y });
       await page.hover(step.hover, { timeout: 5000 }).catch((e) => console.log(`  hover failed: ${e.message}`));
-      await page.evaluate((sel) => {
-        const el = document.querySelector(sel);
-        if (el) (window as any).__zoomIn(el);
-      }, step.hover).catch(() => {});
+      const hoverCenter = await getCenter(step.hover);
+      if (hoverCenter) await page.evaluate((rect) => (window as any).__zoomIn(rect), hoverCenter.box).catch(() => {});
       await page.waitForTimeout(1400);
       await page.evaluate(() => (window as any).__zoomOut()).catch(() => {});
       await page.waitForTimeout(1600);
