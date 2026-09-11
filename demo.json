@@ -1,0 +1,8 @@
+[
+  { "click": "text=Get Started" },
+  { "wait": 800 },
+  { "hover": "nav" },
+  { "wait": 500 },
+  { "scroll": 800 },
+  { "wait": 600 }
+]

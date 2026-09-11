@@ -103,3 +103,30 @@ Peak quality because every frame is a full PNG before h264.
 ## License
 
 MIT - Emperor M.K
+
+## Interactions for demo videos
+
+Not impossible. Playwright drives the page for you.
+
+Create a `demo.json`:
+
+```json
+[
+  { "click": "text=Get Started" },
+  { "wait": 800 },
+  { "fill": ["input[name=email]", "demo@auxlo.xyz"] },
+  { "keypress": "Enter" },
+  { "hover": "nav" },
+  { "scroll": 1200 }
+]
+```
+
+Supported steps: `click`, `fill`, `type`, `hover`, `wait`, `scroll`, `keypress`, `evaluate`.
+
+Run:
+
+```bash
+scroll-capture https://auxlo.xyz --script demo.json -o demo.mp4
+```
+
+It will run the interactions first, then do the smooth scroll capture. Same shake free settings.

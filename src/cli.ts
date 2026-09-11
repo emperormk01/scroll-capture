@@ -5,7 +5,7 @@
  */
 
 import { chromium } from "playwright";
-import { mkdirSync, rmSync, existsSync } from "fs";
+import { mkdirSync, rmSync, existsSync, readFileSync } from "fs";
 import { spawnSync } from "child_process";
 import { parseArgs } from "node:util";
 
@@ -17,6 +17,7 @@ const { values, positionals } = parseArgs({
     height: { type: "string", default: "720" },
     frames: { type: "string", default: "90" },
     fps: { type: "string", default: "30" },
+    script: { type: "string" },
     help: { type: "boolean", short: "h", default: false },
   },
   allowPositionals: true,
@@ -36,12 +37,14 @@ Options:
   --height <px>         Viewport height (default: 720)
   --frames <n>          Frames to capture (default: 90)
   --fps <n>             Framerate (default: 30)
+  --script <file>       JSON script for interactions (click, type, hover, wait)
   -h, --help            Show this help
 
 Examples:
   scroll-capture https://auxlo.xyz -o auxlo.mp4
   scroll-capture https://example.com --frames 120 --fps 60 -o out.mp4
   scroll-capture https://auxlo.xyz --width 1920 --height 1080 -o 1080p.mp4
+  scroll-capture https://auxlo.xyz --script demo.json -o demo.mp4
 
 Settings (locked for smoothness):
   - scroll-behavior: auto (no smooth)
@@ -80,6 +83,58 @@ await page.waitForTimeout(1500);
 await page.addStyleTag({
   content: `* { scroll-behavior: auto !important; } html, body { scroll-behavior: auto !important; } @media (prefers-reduced-motion: reduce) { * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }`,
 });
+
+// Run interaction script if provided (for demo videos)
+const scriptPath = values.script as string | undefined;
+if (scriptPath) {
+  console.log(`Running interaction script: ${scriptPath}`);
+  const raw = readFileSync(scriptPath, "utf-8");
+  const steps: any[] = JSON.parse(raw);
+  for (const step of steps) {
+    if (step.click) {
+      console.log(`  click ${step.click}`);
+      await page.click(step.click, { timeout: 5000 }).catch((e) => console.log(`  click failed: ${e.message}`));
+      await page.waitForTimeout(600);
+    } else if (step.fill) {
+      const [sel, text] = Array.isArray(step.fill) ? step.fill : [step.fill.selector, step.fill.text];
+      console.log(`  fill ${sel} -> ${text}`);
+      await page.fill(sel, text, { timeout: 5000 }).catch((e) => console.log(`  fill failed: ${e.message}`));
+      await page.waitForTimeout(400);
+    } else if (step.type) {
+      const sel = step.type.selector || step.selector;
+      const text = step.type.text || step.text;
+      console.log(`  type ${sel} -> ${text}`);
+      await page.fill(sel, text, { timeout: 5000 }).catch(async () => {
+        await page.click(sel).catch(() => {});
+        await page.keyboard.type(text);
+      });
+      await page.waitForTimeout(400);
+    } else if (step.hover) {
+      console.log(`  hover ${step.hover}`);
+      await page.hover(step.hover, { timeout: 5000 }).catch((e) => console.log(`  hover failed: ${e.message}`));
+      await page.waitForTimeout(500);
+    } else if (step.wait) {
+      const ms = typeof step.wait === "number" ? step.wait : parseInt(step.wait);
+      console.log(`  wait ${ms}ms`);
+      await page.waitForTimeout(ms);
+    } else if (step.scroll) {
+      const y = typeof step.scroll === "number" ? step.scroll : parseInt(step.scroll);
+      console.log(`  scroll to ${y}`);
+      await page.evaluate((yy) => window.scrollTo({ top: yy, behavior: "instant" }), y);
+      await page.waitForTimeout(400);
+    } else if (step.keypress || step.press) {
+      const key = step.keypress || step.press;
+      console.log(`  press ${key}`);
+      await page.keyboard.press(key);
+      await page.waitForTimeout(300);
+    } else if (step.evaluate) {
+      console.log(`  evaluate ${step.evaluate.slice(0, 40)}`);
+      await page.evaluate(new Function(step.evaluate) as any);
+      await page.waitForTimeout(300);
+    }
+  }
+  console.log("Script done, starting scroll capture...");
+}
 
 const bodyHeight = await page.evaluate(() => document.body.scrollHeight);
 const scrollHeight = Math.max(0, bodyHeight - height);
