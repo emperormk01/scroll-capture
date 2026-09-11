@@ -1,0 +1,26 @@
+{
+  "name": "scroll-capture",
+  "version": "0.1.0",
+  "description": "Smooth scroll capture - Playwright + Chromium + FFmpeg - turns any site into a buttery scroll video",
+  "bin": {
+    "scroll-capture": "./src/cli.ts",
+    "scrollvid": "./src/cli.ts"
+  },
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/cli.ts"
+  },
+  "dependencies": {
+    "playwright": "^1.51.0"
+  },
+  "keywords": ["scroll", "capture", "playwright", "ffmpeg", "video", "site"],
+  "author": "Emperor M.K <emperormk01@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/emperormk01/scroll-capture.git"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
