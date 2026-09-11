@@ -63,6 +63,38 @@ const fps = parseInt(values.fps as string);
 const framesDir = "/tmp/scroll-capture-frames";
 rmSync(framesDir, { recursive: true, force: true });
 mkdirSync(framesDir, { recursive: true });
+let frameIdx = 0;
+async function captureFrame() {
+  try {
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))).catch(()=>{});
+    await page.screenshot({ path: `${framesDir}/${String(frameIdx).padStart(4, "0")}.png`, animations: "disabled" }).catch(()=>{});
+    frameIdx++;
+  } catch {}
+}
+async function waitAndCapture(ms: number) {
+  const step = 1000 / fps;
+  let elapsed = 0;
+  while (elapsed < ms) {
+    const chunk = Math.min(step, ms - elapsed);
+    try { await page.waitForTimeout(chunk); } catch {}
+    await captureFrame();
+    elapsed += chunk;
+    if (frameIdx > 1000) break; // safety
+  }
+}
+async function typeWithCapture(selector: string, text: string) {
+  await page.click(selector, { timeout: 5000 }).catch(() => {});
+  await waitAndCapture(200);
+  await page.keyboard.press("ControlOrMeta+A").catch(() => {});
+  await waitAndCapture(150);
+  await page.keyboard.press("Backspace").catch(() => {});
+  await waitAndCapture(200);
+  for (const ch of text) {
+    await page.keyboard.type(ch, { delay: 110 });
+    await waitAndCapture(130);
+  }
+  await waitAndCapture(600);
+}
 
 console.log(`Opening ${url} at ${width}x${height}...`);
 const browser = await chromium.launch({ headless: true });
@@ -218,55 +250,43 @@ async function smoothClick(selector: string) {
   const center = await getCenter(selector);
   if (center) {
     await page.evaluate(({ x, y }) => (window as any).__moveCursorTo(x, y, 700), { x: center.x, y: center.y });
-    await page.waitForTimeout(250);
-    // Zoom in before click - use rect from locator
+    await waitAndCapture(700);
     await page.evaluate((rect) => {
       if (rect) (window as any).__zoomIn(rect);
     }, center.box);
-    await page.waitForTimeout(550);
+    await waitAndCapture(550);
     await page.evaluate(() => (window as any).__cursorClickIn());
     await page.click(selector, { timeout: 5000 }).catch((e) => console.log(`  click failed: ${e.message}`));
-    await page.waitForTimeout(300);
+    await captureFrame();
+    await waitAndCapture(300);
     await page.evaluate(() => (window as any).__cursorClickOut());
-    await page.waitForTimeout(900);
+    await waitAndCapture(900);
     await page.evaluate(() => (window as any).__zoomOut());
-    await page.waitForTimeout(500);
+    await waitAndCapture(500);
   } else {
     console.log(`  center not found for ${selector}, direct click`);
     await page.click(selector, { timeout: 5000 }).catch((e) => console.log(`  click failed: ${e.message}`));
+    await captureFrame();
   }
-  await page.waitForTimeout(1800);
+  await waitAndCapture(800);
 }
 
 async function smoothType(selector: string, text: string) {
   const center = await getCenter(selector);
   if (center) {
     await page.evaluate(({ x, y }) => (window as any).__moveCursorTo(x, y, 600), { x: center.x, y: center.y });
-    await page.waitForTimeout(200);
+    await waitAndCapture(600);
     await page.evaluate((rect) => {
       if (rect) (window as any).__zoomIn(rect);
     }, center.box);
-    await page.waitForTimeout(450);
+    await waitAndCapture(450);
   }
-  // Focus, clear, then type char by char so it's visible (not pre-filled)
-  await page.click(selector, { timeout: 5000 }).catch(() => {});
-  await page.waitForTimeout(200);
-  await page.keyboard.press("ControlOrMeta+A").catch(() => {});
-  await page.waitForTimeout(150);
-  await page.keyboard.press("Backspace").catch(() => {});
-  await page.waitForTimeout(200);
-  // Type with delay - human visible
-  for (const ch of text) {
-    await page.keyboard.type(ch, { delay: 110 });
-    // Tiny cursor nudge to feel alive
-    await page.waitForTimeout(20);
-  }
-  await page.waitForTimeout(600);
+  await typeWithCapture(selector, text);
   if (center) {
     await page.evaluate(() => (window as any).__zoomOut());
-    await page.waitForTimeout(400);
+    await waitAndCapture(400);
   }
-  await page.waitForTimeout(1200);
+  await waitAndCapture(600);
 }
 
 // Run interaction script if provided (for demo videos)
@@ -291,52 +311,96 @@ if (scriptPath) {
     } else if (step.hover) {
       console.log(`  hover ${step.hover}`);
       const c = await getCenter(step.hover);
-      if (c) await page.evaluate(({ x, y }) => (window as any).__moveCursorTo(x, y, 600), { x: c.x, y: c.y });
+      if (c) {
+        await page.evaluate(({ x, y }) => (window as any).__moveCursorTo(x, y, 600), { x: c.x, y: c.y });
+        await waitAndCapture(600);
+      }
       await page.hover(step.hover, { timeout: 5000 }).catch((e) => console.log(`  hover failed: ${e.message}`));
+      await captureFrame();
       const hoverCenter = await getCenter(step.hover);
       if (hoverCenter) await page.evaluate((rect) => (window as any).__zoomIn(rect), hoverCenter.box).catch(() => {});
-      await page.waitForTimeout(1400);
+      await waitAndCapture(1400);
       await page.evaluate(() => (window as any).__zoomOut()).catch(() => {});
-      await page.waitForTimeout(1600);
+      await waitAndCapture(1600);
     } else if (step.wait) {
       const ms = typeof step.wait === "number" ? step.wait : parseInt(step.wait);
       console.log(`  wait ${ms}ms`);
-      await page.waitForTimeout(ms);
+      await waitAndCapture(ms);
     } else if (step.scroll) {
       const y = typeof step.scroll === "number" ? step.scroll : parseInt(step.scroll);
       console.log(`  scroll to ${y}`);
       await page.evaluate((yy) => window.scrollTo({ top: yy, behavior: "instant" }), y);
-      await page.waitForTimeout(1200);
+      await waitAndCapture(1200);
     } else if (step.keypress || step.press) {
       const key = step.keypress || step.press;
       console.log(`  press ${key}`);
       await page.keyboard.press(key);
-      await page.waitForTimeout(900);
+      await waitAndCapture(900);
     } else if (step.evaluate) {
       console.log(`  evaluate ${step.evaluate.slice(0, 40)}`);
       await page.evaluate(new Function(step.evaluate) as any);
-      await page.waitForTimeout(900);
+      await waitAndCapture(900);
     }
   }
   console.log("Script done, starting scroll capture...");
 }
 
-const bodyHeight = await page.evaluate(() => document.body.scrollHeight);
-const scrollHeight = Math.max(0, bodyHeight - height);
-console.log(`bodyHeight=${bodyHeight} scrollHeight=${scrollHeight} frames=${frames} fps=${fps}`);
-
-for (let i = 0; i < frames; i++) {
-  const progress = frames === 1 ? 0 : i / (frames - 1);
-  const y = Math.round(progress * scrollHeight);
-  await page.evaluate((yy) => window.scrollTo({ top: yy, behavior: "instant" }), y);
-  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
-  await page.waitForTimeout(240);
-  await page.screenshot({ path: `${framesDir}/${String(i).padStart(4, "0")}.png`, animations: "disabled" });
-  if (i % 15 === 0) console.log(`frame ${i}/${frames} y=${y}`);
+let bodyHeight = 0;
+let scrollHeight = 0;
+try {
+  bodyHeight = await page.evaluate(() => document.body.scrollHeight);
+  scrollHeight = Math.max(0, bodyHeight - height);
+  console.log(`bodyHeight=${bodyHeight} scrollHeight=${scrollHeight} frames=${frames} fps=${fps} alreadyCaptured=${frameIdx}`);
+} catch (e) {
+  console.log(`bodyHeight evaluate failed (page closed?), using alreadyCaptured=${frameIdx} only`, (e as Error).message?.slice(0,100));
+  bodyHeight = height;
+  scrollHeight = 0;
+}
+if (frameIdx === 0) {
+  // No script - pure scroll capture
+  for (let i = 0; i < frames; i++) {
+    const progress = frames === 1 ? 0 : i / (frames - 1);
+    const y = Math.round(progress * scrollHeight);
+    try {
+      await page.evaluate((yy) => window.scrollTo({ top: yy, behavior: "instant" }), y);
+      await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))).catch(()=>{});
+      await page.waitForTimeout(240);
+      await page.screenshot({ path: `${framesDir}/${String(frameIdx).padStart(4, "0")}.png`, animations: "disabled" }).catch(()=>{});
+    } catch (e) {
+      console.log(`scroll frame ${i} failed`, (e as Error).message?.slice(0,80));
+      break;
+    }
+    frameIdx++;
+    if (i % 15 === 0) console.log(`frame ${frameIdx}/${frames} y=${y}`);
+  }
+} else {
+  // Script already captured interaction frames - now add scroll frames
+  console.log(`Adding ${frames} scroll frames after ${frameIdx} interaction frames`);
+  for (let i = 0; i < frames; i++) {
+    const progress = frames === 1 ? 0 : i / (frames - 1);
+    const y = Math.round(progress * scrollHeight);
+    try {
+      await page.evaluate((yy) => window.scrollTo({ top: yy, behavior: "instant" }), y);
+      await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))).catch(()=>{});
+      await page.waitForTimeout(240);
+      await page.screenshot({ path: `${framesDir}/${String(frameIdx).padStart(4, "0")}.png`, animations: "disabled" }).catch(()=>{});
+    } catch (e) {
+      console.log(`scroll frame ${i} failed`, (e as Error).message?.slice(0,80));
+      break;
+    }
+    frameIdx++;
+    if (i % 15 === 0) console.log(`frame ${frameIdx} y=${y}`);
+  }
+}
+console.log(`Total frames captured: ${frameIdx}`);
+if (frameIdx === 0) {
+  console.error("No frames captured, abort");
+  await browser.close().catch(()=>{});
+  process.exit(1);
 }
 
-await browser.close();
-console.log(`Captured ${frames} frames, stitching with FFmpeg...`);
+try { await browser.close(); } catch {}
+console.log(`Captured ${frameIdx} total frames, stitching with FFmpeg...`);
 
 const ffmpegArgs = [
   "-y",
