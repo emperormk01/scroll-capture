@@ -141,11 +141,8 @@ await page.addStyleTag({
     }
     #scroll-zoom-backdrop.active { background: rgba(0,0,0,0.18); opacity: 1; }
     #scroll-zoom-highlight {
-      position: fixed; border: 2px solid rgba(255,218,110,0.0); border-radius: 12px;
-      box-shadow: 0 0 0 0 rgba(255,218,110,0); pointer-events: none; z-index: 999998;
-      transition: all 0.4s ease; opacity: 0;
+      display: none; /* disabled per user: no yellow pill border */
     }
-    #scroll-zoom-highlight.active { border-color: rgba(255,218,110,0.95); box-shadow: 0 8px 32px rgba(0,0,0,0.25), 0 0 0 4px rgba(255,218,110,0.3); opacity: 1; }
   `,
 });
 
@@ -153,9 +150,6 @@ await page.evaluate(() => {
   const backdrop = document.createElement("div");
   backdrop.id = "scroll-zoom-backdrop";
   document.body.appendChild(backdrop);
-  const highlight = document.createElement("div");
-  highlight.id = "scroll-zoom-highlight";
-  document.body.appendChild(highlight);
 
   const cursor = document.createElement("div");
   cursor.id = "scroll-capture-cursor";
@@ -197,11 +191,6 @@ await page.evaluate(() => {
     const width = rect.width ?? 0;
     const height = rect.height ?? 0;
     backdrop.classList.add("active");
-    highlight.style.left = left - 6 + "px";
-    highlight.style.top = top - 6 + "px";
-    highlight.style.width = width + 12 + "px";
-    highlight.style.height = height + 12 + "px";
-    highlight.classList.add("active");
     // Also scale the element itself for true zoom focus
     try {
       const el = document.elementFromPoint(left + width/2, top + height/2) as HTMLElement;
@@ -217,7 +206,6 @@ await page.evaluate(() => {
   };
   (window as any).__zoomOut = () => {
     backdrop.classList.remove("active");
-    highlight.classList.remove("active");
     if (_zoomedEl) {
       _zoomedEl.style.transform = _zoomedOrigTransform;
       _zoomedEl.style.boxShadow = "";
