@@ -77,40 +77,38 @@ const context = await browser.newContext({ viewport: { width, height } });
 const page = await context.newPage();
 
 await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
-await page.waitForTimeout(1500);
+await page.waitForTimeout(4500);
 
 // Kill shake: force instant scroll and disable animations
 await page.addStyleTag({
   content: `* { scroll-behavior: auto !important; } html, body { scroll-behavior: auto !important; } @media (prefers-reduced-motion: reduce) { * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }`,
 });
 
-// Visible cursor for demo videos (humans need to see where you click)
+// Visible cursor for demo videos - arrow tilted left, so humans see clicks
 await page.addStyleTag({
   content: `
     #scroll-capture-cursor {
       position: fixed;
-      width: 20px;
-      height: 20px;
-      background: white;
-      border: 2px solid black;
-      border-radius: 50% 50% 50% 0;
-      transform: rotate(-45deg) translate(-2px, -2px);
+      width: 28px;
+      height: 28px;
+      background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28"><path d="M3 3 L3 22 L8.5 14.5 L11.5 18.5 L13.5 16.5 L10.5 12.5 L20 8 Z" fill="white" stroke="black" stroke-width="1.6" stroke-linejoin="round"/></svg>') no-repeat;
+      background-size: contain;
       pointer-events: none;
       z-index: 999999;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-      transition: transform 0.08s ease-out, width 0.1s, height 0.1s;
+      filter: drop-shadow(0 2px 6px rgba(0,0,0,0.35));
+      transform: rotate(-10deg);
+      transition: transform 0.12s ease-out;
       will-change: left, top;
     }
     #scroll-capture-cursor.clicking {
-      transform: rotate(-45deg) translate(-2px, -2px) scale(0.85);
-      background: #ffda6e;
+      transform: rotate(-10deg) scale(0.88);
     }
     #scroll-capture-cursor::after {
       content: "";
       position: absolute;
-      width: 40px;
-      height: 40px;
-      border: 2px solid rgba(255,255,255,0.8);
+      width: 36px;
+      height: 36px;
+      border: 2px solid rgba(0,0,0,0.15);
       border-radius: 50%;
       top: 50%;
       left: 50%;
@@ -119,11 +117,11 @@ await page.addStyleTag({
       pointer-events: none;
     }
     #scroll-capture-cursor.ripple::after {
-      animation: cursor-ripple 0.5s ease-out;
+      animation: cursor-ripple 0.6s ease-out;
     }
     @keyframes cursor-ripple {
       0% { transform: translate(-50%, -50%) scale(0); opacity: 1; }
-      100% { transform: translate(-50%, -50%) scale(1.5); opacity: 0; }
+      100% { transform: translate(-50%, -50%) scale(1.6); opacity: 0; }
     }
   `,
 });
@@ -161,12 +159,12 @@ if (scriptPath) {
     if (step.click) {
       console.log(`  click ${step.click}`);
       await page.click(step.click, { timeout: 5000 }).catch((e) => console.log(`  click failed: ${e.message}`));
-      await page.waitForTimeout(600);
+      await page.waitForTimeout(1800);
     } else if (step.fill) {
       const [sel, text] = Array.isArray(step.fill) ? step.fill : [step.fill.selector, step.fill.text];
       console.log(`  fill ${sel} -> ${text}`);
       await page.fill(sel, text, { timeout: 5000 }).catch((e) => console.log(`  fill failed: ${e.message}`));
-      await page.waitForTimeout(400);
+      await page.waitForTimeout(1200);
     } else if (step.type) {
       const sel = step.type.selector || step.selector;
       const text = step.type.text || step.text;
@@ -175,11 +173,11 @@ if (scriptPath) {
         await page.click(sel).catch(() => {});
         await page.keyboard.type(text);
       });
-      await page.waitForTimeout(400);
+      await page.waitForTimeout(1200);
     } else if (step.hover) {
       console.log(`  hover ${step.hover}`);
       await page.hover(step.hover, { timeout: 5000 }).catch((e) => console.log(`  hover failed: ${e.message}`));
-      await page.waitForTimeout(500);
+      await page.waitForTimeout(3000);
     } else if (step.wait) {
       const ms = typeof step.wait === "number" ? step.wait : parseInt(step.wait);
       console.log(`  wait ${ms}ms`);
@@ -188,16 +186,16 @@ if (scriptPath) {
       const y = typeof step.scroll === "number" ? step.scroll : parseInt(step.scroll);
       console.log(`  scroll to ${y}`);
       await page.evaluate((yy) => window.scrollTo({ top: yy, behavior: "instant" }), y);
-      await page.waitForTimeout(400);
+      await page.waitForTimeout(1200);
     } else if (step.keypress || step.press) {
       const key = step.keypress || step.press;
       console.log(`  press ${key}`);
       await page.keyboard.press(key);
-      await page.waitForTimeout(300);
+      await page.waitForTimeout(900);
     } else if (step.evaluate) {
       console.log(`  evaluate ${step.evaluate.slice(0, 40)}`);
       await page.evaluate(new Function(step.evaluate) as any);
-      await page.waitForTimeout(300);
+      await page.waitForTimeout(900);
     }
   }
   console.log("Script done, starting scroll capture...");
@@ -212,7 +210,7 @@ for (let i = 0; i < frames; i++) {
   const y = Math.round(progress * scrollHeight);
   await page.evaluate((yy) => window.scrollTo({ top: yy, behavior: "instant" }), y);
   await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
-  await page.waitForTimeout(80);
+  await page.waitForTimeout(240);
   await page.screenshot({ path: `${framesDir}/${String(i).padStart(4, "0")}.png`, animations: "disabled" });
   if (i % 15 === 0) console.log(`frame ${i}/${frames} y=${y}`);
 }
