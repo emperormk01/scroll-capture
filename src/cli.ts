@@ -84,6 +84,73 @@ await page.addStyleTag({
   content: `* { scroll-behavior: auto !important; } html, body { scroll-behavior: auto !important; } @media (prefers-reduced-motion: reduce) { * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }`,
 });
 
+// Visible cursor for demo videos (humans need to see where you click)
+await page.addStyleTag({
+  content: `
+    #scroll-capture-cursor {
+      position: fixed;
+      width: 20px;
+      height: 20px;
+      background: white;
+      border: 2px solid black;
+      border-radius: 50% 50% 50% 0;
+      transform: rotate(-45deg) translate(-2px, -2px);
+      pointer-events: none;
+      z-index: 999999;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      transition: transform 0.08s ease-out, width 0.1s, height 0.1s;
+      will-change: left, top;
+    }
+    #scroll-capture-cursor.clicking {
+      transform: rotate(-45deg) translate(-2px, -2px) scale(0.85);
+      background: #ffda6e;
+    }
+    #scroll-capture-cursor::after {
+      content: "";
+      position: absolute;
+      width: 40px;
+      height: 40px;
+      border: 2px solid rgba(255,255,255,0.8);
+      border-radius: 50%;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(0);
+      opacity: 0;
+      pointer-events: none;
+    }
+    #scroll-capture-cursor.ripple::after {
+      animation: cursor-ripple 0.5s ease-out;
+    }
+    @keyframes cursor-ripple {
+      0% { transform: translate(-50%, -50%) scale(0); opacity: 1; }
+      100% { transform: translate(-50%, -50%) scale(1.5); opacity: 0; }
+    }
+  `,
+});
+await page.evaluate(() => {
+  const cursor = document.createElement("div");
+  cursor.id = "scroll-capture-cursor";
+  document.body.appendChild(cursor);
+  let lastX = window.innerWidth / 2;
+  let lastY = window.innerHeight / 2;
+  cursor.style.left = lastX + "px";
+  cursor.style.top = lastY + "px";
+  document.addEventListener("mousemove", (e) => {
+    lastX = e.clientX;
+    lastY = e.clientY;
+    cursor.style.left = lastX + "px";
+    cursor.style.top = lastY + "px";
+  });
+  document.addEventListener("mousedown", () => {
+    cursor.classList.add("clicking", "ripple");
+    setTimeout(() => cursor.classList.remove("ripple"), 500);
+  });
+  document.addEventListener("mouseup", () => {
+    cursor.classList.remove("clicking");
+  });
+  (window as any).__scrollCaptureCursor = cursor;
+});
+
 // Run interaction script if provided (for demo videos)
 const scriptPath = values.script as string | undefined;
 if (scriptPath) {
